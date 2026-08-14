@@ -1,0 +1,35 @@
+# 构建产物
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.iobj
+*.ipdb
+*.tlog
+*.recipe
+*.log
+Debug/
+Release/
+x64/
+Win32/
+.vs/
+
+# 本地 IDE
+*.user
+.DS_Store
+
+# 调试脚本和截图，不进主分支
+.cursor/
+_dump_*
+_dnf_*
+_analyze_*
+_find_*
+_rpm_*
+_shot_*
+_wait_*
+_watch_*
+_walk_*
+_preview_*
