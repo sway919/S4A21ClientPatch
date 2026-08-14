@@ -109,7 +109,8 @@ static int __cdecl TS_vt25_ret0()
 
 static int __stdcall TS_vt26_04(int a1)
 {
-    return 0;
+    // NetworkProc dispatches game packets only when this returns 1.
+    return 1;
 }
 
 
@@ -140,7 +141,7 @@ static void* g_vtable[] = {
     (void*)TS_vt23_ret0,    // [23] return 0, ret 0
     (void*)TS_vt24_ret0,    // [24] return 0, ret 0
     (void*)TS_vt25_ret0,    // [25] return 0, ret 0
-    (void*)TS_vt26_04,      // [26] return 0, ret 4 — 1 arg
+    (void*)TS_vt26_04,      // [26] return 1, ret 4 — 1 arg
 };
 
 static void** g_vtable7 = &g_vtable[10];

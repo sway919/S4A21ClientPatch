@@ -91,7 +91,8 @@ static int __fastcall Hook_ISocketWrite(void* this_ptr, void* /*edx*/, char* buf
 
 int __fastcall Proxy_CipherEncrypt(void* This, void* NotUsed, int packet_type, char* input, int in_size, char* out_put, int* out_size)
 {
-    *(int*)(input - 13 + 3) = in_size + 13;
+    // A21 outbound header is 14 bytes; write total size at header+3.
+    *(int*)(input - 14 + 3) = in_size + 14;
 
     *out_size = in_size;
     memcpy(out_put, input, in_size);
