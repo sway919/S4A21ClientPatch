@@ -58,6 +58,18 @@ static void StaticPatches()
         0x61, 0x00, 0x7A, 0x00, 0x2E, 0x00, 0x64, 0x00,           // "az.dll" UTF-16LE
         0x6C, 0x00, 0x6C, 0x00, 0x00, 0x00                         // + null terminator
         });
+
+    // --- Channel select: force manual selection (debug aid) ---
+
+    // sub_10BCE20 ("pending auto channel" gate) → always return 0.
+    // The module tick then never calls tryAutoConnecting, so the saved/prev
+    // channel paths (byte_3A3889C / dword_3A38A24) never auto-connect.
+    mem::patch(0x10BCE20, { 0x32, 0xC0, 0xC3 });
+
+    // CNSelectChannelModule window branch (sub_1329B10): JZ→JMP so the tick
+    // always takes the show-SelectChannelWindow(id 70) path at loc_1329B58
+    // instead of calling AutoSelectChannel().
+    mem::patch(0x1329B4B, { 0xEB });
 }
 
 #define STAGE_OFFSET     0x15E218
@@ -156,7 +168,7 @@ static void HookTownReturnJoin()
         mem::jmphook((uintptr_t)wfso, reinterpret_cast<uintptr_t>(Hook_WaitForSingleObject));
 }
 
-void PatchS4A16()
+void PatchS4A21()
 {
     StaticPatches();
 
@@ -178,7 +190,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(hModule);
-        PatchS4A16();
+        PatchS4A21();
 
         HANDLE thread = CreateThread(nullptr, 0,
             [](LPVOID context) -> DWORD {
