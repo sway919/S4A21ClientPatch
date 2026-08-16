@@ -61,14 +61,12 @@ static void StaticPatches()
 
     // --- Channel select: force manual selection (debug aid) ---
 
-    // sub_10BCE20 ("pending auto channel" gate) → always return 0.
-    // The module tick then never calls tryAutoConnecting, so the saved/prev
-    // channel paths (byte_3A3889C / dword_3A38A24) never auto-connect.
-    mem::patch(0x10BCE20, { 0x32, 0xC0, 0xC3 });
-
     // CNSelectChannelModule window branch (sub_1329B10): JZ→JMP so the tick
     // always takes the show-SelectChannelWindow(id 70) path at loc_1329B58
     // instead of calling AutoSelectChannel().
+    // NOTE: the "pending auto channel" gate sub_10BCE20 must stay intact —
+    // GotoChannelSelectInit needs it to enter the channel-select module for
+    // in-game channel switching; forcing it to 0 breaks that flow.
     mem::patch(0x1329B4B, { 0xEB });
 }
 
