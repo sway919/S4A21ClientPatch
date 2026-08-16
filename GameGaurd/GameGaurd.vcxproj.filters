@@ -18,10 +18,21 @@
     <ClCompile Include="GameGaurd.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="PluginLoader.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="mem.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="PluginLoader.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="GameGaurd.ini">
+      <Filter>资源文件</Filter>
+    </None>
   </ItemGroup>
 </Project>

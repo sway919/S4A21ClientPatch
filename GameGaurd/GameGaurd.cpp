@@ -1,4 +1,6 @@
 ﻿#include "mem.h"
+#include "PluginLoader.h"
+#include <intrin.h>
 
 static void StaticPatches()
 {
@@ -16,9 +18,6 @@ static void StaticPatches()
     // #33: startup init — bypass validation check (JZ→NOP)
     mem::patch(0x02C6C8D4, { 0x90, 0x90 });
 
-    // #37: minimize all windows
-    mem::patch(0x01203BBA, { 0xEB });
-
     // #fix wWinMain Check
     mem::patch(0x02793BF2, { 0xEB, 0x0A });
 
@@ -33,8 +32,7 @@ static void StaticPatches()
     // #21: bypass version signature 0x1B492 check (JZ→JMP)
     mem::patch(0x01A73BBC, { 0xEB });
 
-    // #22: skip type 0x8A event processing (JNZ→JMP)
-    mem::patch(0x02304DCB, { 0xEB });
+    // #22 omitted: A12 skipped type 0x6F; A21 0x02304DCB is 0x8A TELEPORT
 
     // #23: skip game state verification (JZ→JMP)
     mem::patch(0x0231467D, { 0xE9, 0xA2, 0x00 });
@@ -106,6 +104,58 @@ int __fastcall Proxy_CipherDecrypt(void* This, void* NotUsed, int packet_type, c
     return 1;
 }
 
+typedef LONG (NTAPI *NtWFSO_t)(HANDLE handle, BOOLEAN alertable, PLARGE_INTEGER timeout);
+typedef LONG (NTAPI *NtQueryInformationThread_t)(HANDLE thread, ULONG info, PVOID buf, ULONG len, PULONG retlen);
+
+enum { kThreadQuerySetWin32StartAddress = 9 };
+
+static NtWFSO_t g_nt_wfso = 0;
+static NtQueryInformationThread_t g_nt_qthread = 0;
+
+// 05792F4B INFINITE-joins start=028A4DC0. That worker stays suspended and
+// never exits; end it here so the join can return and the handle can close.
+static DWORD WINAPI Hook_WaitForSingleObject(HANDLE handle, DWORD ms)
+{
+    DWORD use = ms;
+    unsigned ra = (unsigned)(uintptr_t)_ReturnAddress();
+    if (ms == 0xFFFFFFFFu && ra == 0x05792F4Bu && g_nt_qthread && handle)
+    {
+        void* sa = 0;
+        if (g_nt_qthread(handle, kThreadQuerySetWin32StartAddress, &sa, sizeof(sa), 0) >= 0
+            && (DWORD)(uintptr_t)sa == 0x028A4DC0u)
+        {
+            DWORD exitCode = 0;
+            if (GetExitCodeThread(handle, &exitCode) && exitCode == STILL_ACTIVE)
+                TerminateThread(handle, 0);
+            use = 0;
+        }
+    }
+    LARGE_INTEGER li;
+    PLARGE_INTEGER p = 0;
+    if (use != 0xFFFFFFFFu)
+    {
+        li.QuadPart = -((LONGLONG)use * 10000);
+        p = &li;
+    }
+    LONG st = g_nt_wfso ? g_nt_wfso(handle, FALSE, p) : (LONG)0xC0000001;
+    if (st == 0)
+        return WAIT_OBJECT_0;
+    if (st == (LONG)0x00000102)
+        return WAIT_TIMEOUT;
+    return WAIT_FAILED;
+}
+
+static void HookTownReturnJoin()
+{
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    g_nt_wfso = ntdll ? (NtWFSO_t)GetProcAddress(ntdll, "NtWaitForSingleObject") : 0;
+    g_nt_qthread = ntdll ? (NtQueryInformationThread_t)GetProcAddress(ntdll, "NtQueryInformationThread") : 0;
+    HMODULE k32 = GetModuleHandleA("kernel32.dll");
+    FARPROC wfso = k32 ? GetProcAddress(k32, "WaitForSingleObject") : 0;
+    if (g_nt_wfso && wfso)
+        mem::jmphook((uintptr_t)wfso, reinterpret_cast<uintptr_t>(Hook_WaitForSingleObject));
+}
+
 void PatchS4A16()
 {
     StaticPatches();
@@ -118,6 +168,8 @@ void PatchS4A16()
 
     // nengine::ISocket::Write — staging append (reversed from MakePacket/TCP_SEND)
     mem::jmphook(0x05790FE9, reinterpret_cast<uintptr_t>(Hook_ISocketWrite));
+
+    HookTownReturnJoin();
 }
 
 
@@ -127,6 +179,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
     {
         DisableThreadLibraryCalls(hModule);
         PatchS4A16();
+
+        HANDLE thread = CreateThread(nullptr, 0,
+            [](LPVOID context) -> DWORD {
+                plugin_loader::LoadConfiguredPlugins(static_cast<HMODULE>(context));
+                return 0;
+            }, hModule, 0, nullptr);
+        if (thread)
+            CloseHandle(thread);
     }
     return TRUE;
 }
