@@ -52,18 +52,6 @@ static void StaticPatches()
     // personal warehouse window to open with our server.
     mem::patch(0x02304DCB, { 0xEB });
 
-    // NUDPCore/MTUPD UDP listener: never start its worker thread
-    // (town-return fix). StartListening (0x28A0600) creates the listener
-    // thread suspended and, with no UDP session in our environment, it is
-    // never resumed — so the INFINITE join in the Stop wrapper (sub_28A06F0)
-    // and destructor (sub_28A1ED0) hangs the dungeon->town module switch.
-    // Returning success before any work keeps the created/running flags
-    // clear, so both Stop gates stay closed and no thread ever exists.
-    // (The official client runs the same listener but resumes the thread at
-    // creation, so its join always returns.) Revisit if the server ever
-    // speaks UDP.
-    mem::patch(0x28A0600, { 0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3 });  // mov eax,1; ret
-
     // Patch encrypted string at 0x035E997C to decrypted "az.dll"
     // Original is encrypted; overwrite with decrypted form so GetOrDecryptWideString
     // returns "az.dll" → GetModuleHandleW finds our az.dll → CreateObj works
@@ -163,7 +151,7 @@ static int StageRingPush(char* ring, const char* src, int size)
     return 0;
 }
 
-static int __fastcall Hook_ISocketWrite(void* this_ptr, void* /*edx*/, char* buffer, int size)
+static int __fastcall Proxy_ISocketWrite(void* this_ptr, void* /*edx*/, char* buffer, int size)
 {
     char* base = (char*)this_ptr;
     if (!*(base + 4)) return (int)0x80000001;  // not initialized
@@ -189,6 +177,30 @@ int __fastcall Proxy_CipherDecrypt(void* This, void* NotUsed, int packet_type, c
     return 1;
 }
 
+// Native reimplementation of CThread::Create (official logic from the clean
+// reference). A21's own Create is VM'd (call target 0x4F69122) and in our
+// runtime it neither resumes the new thread nor preserves the object vtable
+// (0x103 gets written over [this+0]). This proxy creates the thread and
+// resumes it immediately, exactly like the official client:
+//   handle at this+0x1C, tid at this+0x20, started flag at this+0x24,
+//   start routine = the shared thunk 0x028A4DC0.
+static DWORD __fastcall Proxy_CThreadCreate(void* This, void* /*edx*/)
+{
+    DWORD* self = (DWORD*)This;
+    // a previous VM-path teardown may have clobbered [this+0] with 0x103;
+    // restore the listener class vtable so the thunk can dispatch Run()
+    if (*self != 0x0361C50C)
+        *self = 0x0361C50C;
+    HANDLE h = CreateThread(0, 0, (LPTHREAD_START_ROUTINE)0x028A4DC0, self,
+                            4 /* CREATE_SUSPENDED */, self + 8);
+    self[7] = (DWORD)(uintptr_t)h;
+    if (!h)
+        return 0;  // the official throws here
+    SetThreadPriority(h, 2);  // THREAD_PRIORITY_HIGHEST
+    *((BYTE*)self + 36) = 1;
+    return ResumeThread(h);
+}
+
 void PatchS4A21()
 {
     StaticPatches();
@@ -200,7 +212,11 @@ void PatchS4A21()
     mem::jmphook(0x026B7E50, reinterpret_cast<uintptr_t>(Proxy_CipherDecrypt));
 
     // nengine::ISocket::Write — full ring-buffer port of the official original
-    mem::jmphook(0x05790FE9, reinterpret_cast<uintptr_t>(Hook_ISocketWrite));
+    mem::jmphook(0x05790FE9, reinterpret_cast<uintptr_t>(Proxy_ISocketWrite));
+
+    // CThread::Create — native reimplementation replacing the VM'd original
+    // (called from MTUPD StartListening at 0x28A06A2)
+    mem::callhook(0x28A06A2, reinterpret_cast<uintptr_t>(Proxy_CThreadCreate));
 }
 
 
