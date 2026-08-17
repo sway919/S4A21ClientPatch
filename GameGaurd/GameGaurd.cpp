@@ -32,8 +32,6 @@ static void StaticPatches()
     // #21: bypass version signature 0x1B492 check (JZ→JMP)
     mem::patch(0x01A73BBC, { 0xEB });
 
-    // #22 omitted: A12 skipped type 0x6F; A21 0x02304DCB is 0x8A TELEPORT
-
     // #23: skip game state verification (JZ→JMP)
     mem::patch(0x0231467D, { 0xE9, 0xA2, 0x00 });
 
@@ -49,6 +47,22 @@ static void StaticPatches()
     mem::patch(0x00E0CBF0, { 0x31, 0xC0, 0x40, 0xC2, 0x04, 0x00 });
     mem::patch(0x0163C650, { 0x31, 0xC0, 0x40, 0xC2, 0x04, 0x00 });
     mem::patch(0x0163D8B0, { 0x31, 0xC0, 0x40, 0xC2, 0x04, 0x00 });
+
+    // #22: skip type 0x8A event processing (JNZ→JMP) — required for the
+    // personal warehouse window to open with our server.
+    mem::patch(0x02304DCB, { 0xEB });
+
+    // NUDPCore/MTUPD UDP listener: never start its worker thread
+    // (town-return fix). StartListening (0x28A0600) creates the listener
+    // thread suspended and, with no UDP session in our environment, it is
+    // never resumed — so the INFINITE join in the Stop wrapper (sub_28A06F0)
+    // and destructor (sub_28A1ED0) hangs the dungeon->town module switch.
+    // Returning success before any work keeps the created/running flags
+    // clear, so both Stop gates stay closed and no thread ever exists.
+    // (The official client runs the same listener but resumes the thread at
+    // creation, so its join always returns.) Revisit if the server ever
+    // speaks UDP.
+    mem::patch(0x28A0600, { 0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3 });  // mov eax,1; ret
 
     // Patch encrypted string at 0x035E997C to decrypted "az.dll"
     // Original is encrypted; overwrite with decrypted form so GetOrDecryptWideString
@@ -70,31 +84,92 @@ static void StaticPatches()
     mem::patch(0x1329B4B, { 0xEB });
 }
 
+// nengine::ISocket::Write — full port of the official client original
+// (RingBufferPushBytes). Send staging ring at this+0x15E218:
+//   ring+0x000000  byte buffer[0xAF000]
+//   ring+0x0AF000  wpos (producer index)
+//   ring+0x0AF004  rpos (consumer index, advanced by the untouched pop/flush side)
+//   ring+0x0AF008  CRITICAL_SECTION
+// Invariant: wpos==rpos means EMPTY, so push must never let wpos catch rpos;
+// the ring holds at most 0xAF000-1 bytes. Error codes and the wrapper's
+// return convention (1 / 0x800000xx) match the original because A21 callers
+// may branch on them.
 #define STAGE_OFFSET     0x15E218
 #define STAGE_SIZE       0xAF000
-#define STAGE_WPOS_OFF   (STAGE_OFFSET + 0xAF000)
-#define STAGE_CS_OFF     (STAGE_OFFSET + 0xAF008)
+#define STAGE_WPOS_OFF   (STAGE_OFFSET + STAGE_SIZE)
+#define STAGE_RPOS_OFF   (STAGE_WPOS_OFF + 4)
+#define STAGE_CS_OFF     (STAGE_WPOS_OFF + 8)
+
+static int StageRingPush(char* ring, const char* src, int size)
+{
+    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)(ring + STAGE_SIZE + 8);
+    DWORD* pWpos = (DWORD*)(ring + STAGE_SIZE);
+    DWORD* pRpos = (DWORD*)(ring + STAGE_SIZE + 4);
+
+    EnterCriticalSection(cs);
+    if ((unsigned)size >= STAGE_SIZE)
+    {
+        LeaveCriticalSection(cs);
+        return -1;
+    }
+
+    DWORD wp = *pWpos;
+    DWORD rp = *pRpos;
+    if (wp < rp)
+    {
+        if (size >= (int)(rp - wp))
+        {
+            LeaveCriticalSection(cs);
+            return -4;
+        }
+        memcpy(ring + wp, src, size);
+        *pWpos = wp + size;
+        LeaveCriticalSection(cs);
+        return 0;
+    }
+
+    DWORD tail = STAGE_SIZE - wp;  // room from wpos to the end
+    if (size < (int)tail)
+    {
+        memcpy(ring + wp, src, size);
+        *pWpos = wp + size;
+        LeaveCriticalSection(cs);
+        return 0;
+    }
+    if (size == (int)tail)
+    {
+        if (!rp)
+        {
+            LeaveCriticalSection(cs);
+            return -2;  // filling exactly to the end would force wpos==rpos==0
+        }
+        memcpy(ring + wp, src, size);
+        wp += size;
+        if (wp == STAGE_SIZE)
+            wp = 0;
+        *pWpos = wp;
+        LeaveCriticalSection(cs);
+        return 0;
+    }
+    if (size >= (int)(tail + rp))
+    {
+        LeaveCriticalSection(cs);
+        return -3;
+    }
+    memcpy(ring + wp, src, tail);            // fill to the end
+    memcpy(ring, src + tail, size - tail);   // wrap the rest to the front
+    *pWpos = size - tail;
+    LeaveCriticalSection(cs);
+    return 0;
+}
 
 static int __fastcall Hook_ISocketWrite(void* this_ptr, void* /*edx*/, char* buffer, int size)
 {
     char* base = (char*)this_ptr;
-    if (!*(base + 8)) return -2147483564;
-    if (!buffer || size <= 0) return -1;
-
-    CRITICAL_SECTION* cs = (CRITICAL_SECTION*)(base + STAGE_CS_OFF);
-    DWORD* pWpos = (DWORD*)(base + STAGE_WPOS_OFF);
-
-    EnterCriticalSection(cs);
-    DWORD wp = *pWpos;
-    if ((unsigned)size >= STAGE_SIZE - wp)
-    {
-        LeaveCriticalSection(cs);
-        return -2;
-    }
-    memcpy(base + STAGE_OFFSET + wp, buffer, size);
-    *pWpos = wp + size;
-    LeaveCriticalSection(cs);
-    return 0;
+    if (!*(base + 4)) return (int)0x80000001;  // not initialized
+    if (!*(base + 8)) return (int)0x80000054;  // socket closed
+    if (!size || !buffer) return (int)0x80000000;
+    return StageRingPush(base + STAGE_OFFSET, buffer, size) >= 0 ? 1 : (int)0x80000059;
 }
 
 int __fastcall Proxy_CipherEncrypt(void* This, void* NotUsed, int packet_type, char* input, int in_size, char* out_put, int* out_size)
@@ -114,58 +189,6 @@ int __fastcall Proxy_CipherDecrypt(void* This, void* NotUsed, int packet_type, c
     return 1;
 }
 
-typedef LONG (NTAPI *NtWFSO_t)(HANDLE handle, BOOLEAN alertable, PLARGE_INTEGER timeout);
-typedef LONG (NTAPI *NtQueryInformationThread_t)(HANDLE thread, ULONG info, PVOID buf, ULONG len, PULONG retlen);
-
-enum { kThreadQuerySetWin32StartAddress = 9 };
-
-static NtWFSO_t g_nt_wfso = 0;
-static NtQueryInformationThread_t g_nt_qthread = 0;
-
-// 05792F4B INFINITE-joins start=028A4DC0. That worker stays suspended and
-// never exits; end it here so the join can return and the handle can close.
-static DWORD WINAPI Hook_WaitForSingleObject(HANDLE handle, DWORD ms)
-{
-    DWORD use = ms;
-    unsigned ra = (unsigned)(uintptr_t)_ReturnAddress();
-    if (ms == 0xFFFFFFFFu && ra == 0x05792F4Bu && g_nt_qthread && handle)
-    {
-        void* sa = 0;
-        if (g_nt_qthread(handle, kThreadQuerySetWin32StartAddress, &sa, sizeof(sa), 0) >= 0
-            && (DWORD)(uintptr_t)sa == 0x028A4DC0u)
-        {
-            DWORD exitCode = 0;
-            if (GetExitCodeThread(handle, &exitCode) && exitCode == STILL_ACTIVE)
-                TerminateThread(handle, 0);
-            use = 0;
-        }
-    }
-    LARGE_INTEGER li;
-    PLARGE_INTEGER p = 0;
-    if (use != 0xFFFFFFFFu)
-    {
-        li.QuadPart = -((LONGLONG)use * 10000);
-        p = &li;
-    }
-    LONG st = g_nt_wfso ? g_nt_wfso(handle, FALSE, p) : (LONG)0xC0000001;
-    if (st == 0)
-        return WAIT_OBJECT_0;
-    if (st == (LONG)0x00000102)
-        return WAIT_TIMEOUT;
-    return WAIT_FAILED;
-}
-
-static void HookTownReturnJoin()
-{
-    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
-    g_nt_wfso = ntdll ? (NtWFSO_t)GetProcAddress(ntdll, "NtWaitForSingleObject") : 0;
-    g_nt_qthread = ntdll ? (NtQueryInformationThread_t)GetProcAddress(ntdll, "NtQueryInformationThread") : 0;
-    HMODULE k32 = GetModuleHandleA("kernel32.dll");
-    FARPROC wfso = k32 ? GetProcAddress(k32, "WaitForSingleObject") : 0;
-    if (g_nt_wfso && wfso)
-        mem::jmphook((uintptr_t)wfso, reinterpret_cast<uintptr_t>(Hook_WaitForSingleObject));
-}
-
 void PatchS4A21()
 {
     StaticPatches();
@@ -176,10 +199,8 @@ void PatchS4A21()
     // Cipher::Decrypt → memcpy passthrough
     mem::jmphook(0x026B7E50, reinterpret_cast<uintptr_t>(Proxy_CipherDecrypt));
 
-    // nengine::ISocket::Write — staging append (reversed from MakePacket/TCP_SEND)
+    // nengine::ISocket::Write — full ring-buffer port of the official original
     mem::jmphook(0x05790FE9, reinterpret_cast<uintptr_t>(Hook_ISocketWrite));
-
-    HookTownReturnJoin();
 }
 
 

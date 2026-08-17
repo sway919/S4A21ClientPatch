@@ -13,8 +13,8 @@ az.dll
 GameGaurd.dll
   → 静态兼容补丁
   → Cipher::Encrypt / Decrypt 改为 memcpy 透传（服务端发明文）
-  → nengine::ISocket::Write 改为 staging 追加
-  → 回城 join 跳过
+  → nengine::ISocket::Write 改为 staging 追加（官方原版环形缓冲完整移植）
+  → 回城修复：MTUPD::StartListening 直接返回成功（0x28A0600 处 6 字节），UDP 监听线程不再创建
   → 按 GameGaurd.ini [Plugins] 加载功能插件
 ```
 
