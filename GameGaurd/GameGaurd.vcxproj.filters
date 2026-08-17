@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DebugFeatures.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="GameGaurd.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -23,6 +26,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DebugFeatures.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="mem.h">
       <Filter>头文件</Filter>
     </ClInclude>

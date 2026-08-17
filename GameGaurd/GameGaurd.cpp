@@ -1,4 +1,5 @@
 ﻿#include "mem.h"
+#include "DebugFeatures.h"
 #include "PluginLoader.h"
 #include <intrin.h>
 
@@ -167,6 +168,8 @@ int __fastcall Proxy_CipherEncrypt(void* This, void* NotUsed, int packet_type, c
 
     *out_size = in_size;
     memcpy(out_put, input, in_size);
+    debug_features::LogCipherPacket(
+        L"encrypt", packet_type, input, in_size, out_put, *out_size);
     return 1;
 }
 
@@ -174,6 +177,8 @@ int __fastcall Proxy_CipherDecrypt(void* This, void* NotUsed, int packet_type, c
 {
     *out_size = in_size;
     memcpy(out_put, input, in_size);
+    debug_features::LogCipherPacket(
+        L"decrypt", packet_type, input, in_size, out_put, *out_size);
     return 1;
 }
 
@@ -201,7 +206,7 @@ static DWORD __fastcall Proxy_CThreadCreate(void* This, void* /*edx*/)
     return ResumeThread(h);
 }
 
-void PatchS4A21()
+void PatchS4A21(HMODULE module)
 {
     StaticPatches();
 
@@ -217,6 +222,8 @@ void PatchS4A21()
     // CThread::Create — native reimplementation replacing the VM'd original
     // (called from MTUPD StartListening at 0x28A06A2)
     mem::callhook(0x28A06A2, reinterpret_cast<uintptr_t>(Proxy_CThreadCreate));
+
+    debug_features::Apply(module);
 }
 
 
@@ -225,7 +232,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(hModule);
-        PatchS4A21();
+        PatchS4A21(hModule);
 
         HANDLE thread = CreateThread(nullptr, 0,
             [](LPVOID context) -> DWORD {

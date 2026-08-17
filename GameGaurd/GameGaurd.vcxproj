@@ -19,10 +19,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DebugFeatures.cpp" />
     <ClCompile Include="GameGaurd.cpp" />
     <ClCompile Include="PluginLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DebugFeatures.h" />
     <ClInclude Include="mem.h" />
     <ClInclude Include="PluginLoader.h" />
   </ItemGroup>
