@@ -1,6 +1,7 @@
 ﻿#include "mem.h"
 #include "DebugFeatures.h"
 #include "PluginLoader.h"
+#include <cstring>
 #include <intrin.h>
 
 static void StaticPatches()
@@ -71,6 +72,9 @@ static void StaticPatches()
     // GotoChannelSelectInit needs it to enter the channel-select module for
     // in-game channel switching; forcing it to 0 breaks that flow.
     mem::patch(0x1329B4B, { 0xEB });
+
+    // packed `jge`→`jz`：type 52-55 走进 1A5A590 第一段写。
+    mem::patch(0x01A5A5D2, { 0x74 });
 }
 
 // nengine::ISocket::Write — full port of the official client original
@@ -206,6 +210,103 @@ static DWORD __fastcall Proxy_CThreadCreate(void* This, void* /*edx*/)
     return ResumeThread(h);
 }
 
+// 聊天页签过滤：不自写 154B，不自调 1A59B90。
+
+static int FilterBlobSum(const unsigned char* blob)
+{
+    int n = 0;
+    for (int i = 0; i < 154; ++i)
+        n += blob[i];
+    return n;
+}
+
+// 全 0 的 154B 当 miss，走 1A59B90 失败默认。
+static char __fastcall Hook_ReadFilterBlob(void* store, void* /*edx*/, int key, void* blob, int size)
+{
+    const char ok = reinterpret_cast<char (__thiscall *)(void*, int, void*, int)>(0x01385870)(
+        store, key, blob, size);
+    if (ok && size == 154 && blob && FilterBlobSum(static_cast<unsigned char*>(blob)) == 0)
+        return 0;
+    return ok;
+}
+
+// 空 slot (-1,-1,-1) 走 137EEF0(138,97,97)。
+static char __fastcall Hook_LoadTabIds(void* store)
+{
+    const char ok = reinterpret_cast<char (__thiscall *)(void*)>(0x01386210)(store);
+    int* slot0 = reinterpret_cast<int*>(0x0397F0A8);
+    int* slot1 = reinterpret_cast<int*>(0x0397F0AC);
+    int* slot2 = reinterpret_cast<int*>(0x0397F0B0);
+    if (*slot0 == -1 && *slot1 == -1 && *slot2 == -1)
+    {
+        reinterpret_cast<int (__stdcall *)(int, int, int)>(0x0137EEF0)(138, 97, 97);
+        typedef void* (__cdecl *FnStore)();
+        void* st = reinterpret_cast<FnStore>(0x013868F0)();
+        if (st)
+            reinterpret_cast<int (__thiscall *)(void*)>(0x01388420)(st);
+    }
+    return ok;
+}
+
+// 跳过错位的 1A5C6B0，避免 hide 窗口 tab 81-86。
+static int __fastcall Hook_HideExtraTabs(void* /*chat*/)
+{
+    return 0;
+}
+
+// 13224B0：type 16-30 读 group 4；type 1/2/3/6 共用 channel 2。
+static int Official13224B0BlobGroup(int leftover_group, int type)
+{
+    if ((unsigned)(type - 16) <= 14)
+        return 4;
+    return leftover_group;
+}
+
+static int Official13224B0SharedChannel(int type)
+{
+    return type == 1 || type == 2 || type == 3 || type == 6;
+}
+
+static void OfficialSaveFilter(void* win, int group, int type, int value)
+{
+    reinterpret_cast<void (__thiscall *)(void*, int, int, int)>(0x01A5A860)(
+        win, group, type, value);
+}
+
+// leftover 脏 bool 收成 0/1；先写 [esi+34h]，不够再写 13224B0 会读的 group。
+static void __fastcall Hook_SaveFromEngine(void* win, void* /*edx*/, int group, int type, int value)
+{
+    int v = value;
+    if (*reinterpret_cast<int*>(0x03998E00) == 4483)
+        v &= 1;
+    OfficialSaveFilter(win, group, type, v);
+    if (*reinterpret_cast<int*>(0x03998E00) == 4483)
+    {
+        const int apply_group = Official13224B0BlobGroup(group, type);
+        if (apply_group != group)
+            OfficialSaveFilter(win, apply_group, type, v);
+    }
+}
+
+// shared-channel type 只把 leftover group 交给 13224B0。
+static void __cdecl Hook_Df80EngineApply(int group, int type, int value)
+{
+    if (Official13224B0SharedChannel(type) &&
+        group != Official13224B0BlobGroup(0, type))
+        return;
+    reinterpret_cast<void (__cdecl *)(int, int, int)>(0x013224B0)(group, type, value);
+}
+
+// 只 hook call site。
+static void InstallChatFilterOfficial()
+{
+    mem::callhook(0x01A59BD3, reinterpret_cast<uintptr_t>(Hook_ReadFilterBlob));
+    mem::callhook(0x01A66137, reinterpret_cast<uintptr_t>(Hook_LoadTabIds));
+    mem::callhook(0x011110B3, reinterpret_cast<uintptr_t>(Hook_HideExtraTabs));
+    mem::callhook(0x01322430, reinterpret_cast<uintptr_t>(Hook_SaveFromEngine));
+    mem::callhook(0x01A5E81C, reinterpret_cast<uintptr_t>(Hook_Df80EngineApply));
+}
+
 void PatchS4A21(HMODULE module)
 {
     StaticPatches();
@@ -222,6 +323,8 @@ void PatchS4A21(HMODULE module)
     // CThread::Create — native reimplementation replacing the VM'd original
     // (called from MTUPD StartListening at 0x28A06A2)
     mem::callhook(0x28A06A2, reinterpret_cast<uintptr_t>(Proxy_CThreadCreate));
+
+    InstallChatFilterOfficial();
 
     debug_features::Apply(module);
 }
