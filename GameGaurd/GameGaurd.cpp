@@ -75,6 +75,15 @@ static void StaticPatches()
 
     // packed `jge`→`jz`：type 52-55 走进 1A5A590 第一段写。
     mem::patch(0x01A5A5D2, { 0x74 });
+
+    // 19E95C0 (put char in a face-bar slot) ends with call 19E94A0.
+    // That blit uses this+0x18 before 19DFB10 copies the job face;
+    // leftover 14 is past defaultfaces.img frames 0–13 and draws the
+    // missing-image stub at client (0,0) on select→town.
+    // Keep 13E27E0's "is me" path (19E9800 → 19E95C0 bind, widgets
+    // 0x83/0x84, 163DA50). Only NOP this trailing draw; later official
+    // 19E94A0 callers still run.
+    mem::patch(0x19E97A3, { 0x90, 0x90, 0x90, 0x90, 0x90 });
 }
 
 // nengine::ISocket::Write — full port of the official client original
