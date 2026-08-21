@@ -282,19 +282,27 @@ static void OfficialSaveFilter(void* win, int group, int type, int value)
         win, group, type, value);
 }
 
-// leftover 脏 bool 收成 0/1；先写 [esi+34h]，不够再写 13224B0 会读的 group。
+// 系统项保存到 group 4，只写一次。
 static void __fastcall Hook_SaveFromEngine(void* win, void* /*edx*/, int group, int type, int value)
 {
     int v = value;
-    if (*reinterpret_cast<int*>(0x03998E00) == 4483)
-        v &= 1;
-    OfficialSaveFilter(win, group, type, v);
+    int save_group = group;
     if (*reinterpret_cast<int*>(0x03998E00) == 4483)
     {
-        const int apply_group = Official13224B0BlobGroup(group, type);
-        if (apply_group != group)
-            OfficialSaveFilter(win, apply_group, type, v);
+        v &= 1;
+        save_group = Official13224B0BlobGroup(group, type);
     }
+    OfficialSaveFilter(win, save_group, type, v);
+}
+
+// 系统列表行号 +1，与勾选对齐。
+static int __fastcall Hook_ApplyFilterRow(
+    void* list, void* /*edx*/, unsigned int tab, unsigned int capacity, int filter_index, int value)
+{
+    if (tab == 0 && filter_index >= 0 && filter_index <= 14)
+        ++filter_index;
+    return reinterpret_cast<int (__thiscall *)(void*, unsigned int, unsigned int, int, int)>(
+        0x01321E20)(list, tab, capacity, filter_index, value);
 }
 
 // shared-channel type 只把 leftover group 交给 13224B0。
@@ -313,6 +321,7 @@ static void InstallChatFilterOfficial()
     mem::callhook(0x01A66137, reinterpret_cast<uintptr_t>(Hook_LoadTabIds));
     mem::callhook(0x011110B3, reinterpret_cast<uintptr_t>(Hook_HideExtraTabs));
     mem::callhook(0x01322430, reinterpret_cast<uintptr_t>(Hook_SaveFromEngine));
+    mem::callhook(0x0132264C, reinterpret_cast<uintptr_t>(Hook_ApplyFilterRow));
     mem::callhook(0x01A5E81C, reinterpret_cast<uintptr_t>(Hook_Df80EngineApply));
 }
 
