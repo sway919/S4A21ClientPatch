@@ -1,6 +1,12 @@
 # S4A21 ClientPatch
 
-S4A21 国服客户端过壳补丁。用 `az.dll` 和 `GameGaurd.dll` 替换壳相关模块，游戏本体和官方 `ijl15.dll` 保持不变。
+S4A21 客户端过壳补丁。用 `az.dll` 和 `GameGaurd.dll` 替换壳相关模块，游戏本体和官方 `ijl15.dll` 保持不变。
+
+| 目录 | 作用 |
+| --- | --- |
+| `az/` | 过壳入口，修复 EXE IAT 后加载 `GameGaurd.dll` |
+| `GameGaurd/` | 静态兼容补丁和插件加载器 |
+| [`Extensions/`](Extensions/) | 功能扩展插件源码 |
 
 ### 调用链路
 
@@ -22,7 +28,7 @@ GameGaurd.dll
 
 ### 构建和部署
 
-Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成的 `az.dll`、`GameGaurd.dll`、`PreventMinimize.dll` 和 `GameGaurd.ini` 放到客户端根目录。
+Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成的 `az.dll`、`GameGaurd.dll` 和 `Extensions/` 下各插件的 dll、ini 放到客户端根目录。依赖游戏原生能力的功能插件写在 `GameNative.dll` 后面。
 
 ### 静态补丁
 
@@ -33,3 +39,19 @@ Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成
 - 还原 packer 破坏的函数序言
 - NetworkProc 固定 XOR 解密 NOP（服务端明文）
 - n5 校验入口改为直接返回成功
+
+### 功能扩展
+
+功能插件源码在 [`Extensions/`](Extensions/)，由 `GameGaurd.ini` 的 `[Plugins]` 按顺序加载。DLL 和 ini 仍拷到客户端根目录（与 `GameGaurd.dll` 同级）。换装的 XUI 和方案数据放在同级的 `EquipmentSwap` 文件夹。
+
+| 插件 | 说明 |
+| --- | --- |
+| [GameNative](Extensions/GameNative/README.md) | 游戏原生能力：聊天公告、外挂 XUI、窗口 ID。没有独立界面，供其他功能插件调用。 |
+| [AutoFire](Extensions/AutoFire/README.md) | 键盘连发、组合动作和鼠标连点。自动判断游戏中的输入状态，打字时不合成。 |
+| [EquipmentSwap](Extensions/EquipmentSwap/README.md) | 游戏内换装面板。聊天公告和窗口走 GameNative。 |
+| [DpsMeter](Extensions/DpsMeter/README.md) | 地下城伤害统计。独立窗口；载入和开关公告走 GameNative。 |
+| [CombatPower](Extensions/CombatPower/README.md) | 个人信息页战力侧栏。载入公告走 GameNative。 |
+| [PreventMinimize](Extensions/PreventMinimize/README.md) | 阻止客户端启动时最小化其他窗口。 |
+| [MultiInstance](Extensions/MultiInstance/README.md) | 解除客户端单实例限制。 |
+
+依赖 `GameNative` 的插件必须写在它后面。`GameGaurd.ini` 不能带 UTF-8 BOM。详情见各插件目录里的 README。
