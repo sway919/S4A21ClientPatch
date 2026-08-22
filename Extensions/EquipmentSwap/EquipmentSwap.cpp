@@ -804,14 +804,6 @@ void ProcessSwapJob()
             }
         }
 
-        if (definition.destinationSlot == 13)
-        {
-            ++g_swapJob.missing;
-            Log(L"[换装] 称号不在背包，无法用原生背包穿戴：物品ID=%d",
-                setting.itemId);
-            continue;
-        }
-
         int sourceSlot = -1;
         if (!FindItemSlot(definition, setting.itemId, setting.qualitySeed,
             matchQuality, setting.preferredSourceSlot, sourceSlot))
