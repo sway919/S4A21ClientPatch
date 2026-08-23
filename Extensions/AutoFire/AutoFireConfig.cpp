@@ -230,7 +230,7 @@ std::vector<std::wstring> Split(const std::wstring& value, wchar_t separator)
 
 void LoadRapidFire(const std::wstring& path, auto_fire::Configuration& config)
 {
-    // [RapidFire] 的键名是物理键，值是每次合成键弹起后的等待毫秒数。
+    // [RapidFire] 的键名是物理键，值是连发周期毫秒。
     for (const auto& entry : ReadSection(L"RapidFire", path))
     {
         auto_fire::KeySpec key;

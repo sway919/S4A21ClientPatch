@@ -50,7 +50,7 @@ struct Configuration
     bool foregroundOnly = true;
     bool debug = false;
     unsigned int keyPressDurationMs = 16;
-    // 第一下走物理键；按住超过该毫秒才开始合成。官方输入捕获标志为真时不合成。
+    // 第一下走物理键；按住超过该毫秒才开始连发。官方输入捕获标志为真时暂停。
     unsigned int holdThresholdMs = 0;
     bool hasToggleKey = false;
     KeySpec toggleKey;
