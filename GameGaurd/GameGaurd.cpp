@@ -1,6 +1,7 @@
 ﻿#include "mem.h"
 #include "DebugFeatures.h"
 #include "PluginLoader.h"
+#include "WebPageUrl.h"
 #include <cstring>
 #include <intrin.h>
 
@@ -354,6 +355,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
     {
         DisableThreadLibraryCalls(hModule);
         PatchS4A21(hModule);
+        web_page_url::Install();
 
         HANDLE thread = CreateThread(nullptr, 0,
             [](LPVOID context) -> DWORD {

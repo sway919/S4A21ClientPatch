@@ -39,6 +39,7 @@ Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成
 - 还原 packer 破坏的函数序言
 - NetworkProc 固定 XOR 解密 NOP（服务端明文）
 - n5 校验入口改为直接返回成功
+- hook内嵌页面地址指向
 
 ### 功能扩展
 
