@@ -34,7 +34,6 @@ Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成
 
 - 跳过 TCLS / QQSafeStorage / 启动校验
 - 跳过 CHANNELINFO 加密 key 段
-- 代码页 GBK(936) → UTF-8(65001)
 - 版本签名 / 游戏状态校验
 - 还原 packer 破坏的函数序言
 - NetworkProc 固定 XOR 解密 NOP（服务端明文）
