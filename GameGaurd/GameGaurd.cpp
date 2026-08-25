@@ -29,9 +29,6 @@ static void StaticPatches()
 
     // --- Version/signature compatibility ---
 
-    // #1: SetCodePage GBK(936)→UTF-8(65001)
-    mem::patch(0x00426BE1, { 0xE9, 0xFD });
-
     // #21: bypass version signature 0x1B492 check (JZ→JMP)
     mem::patch(0x01A73BBC, { 0xEB });
 
