@@ -43,6 +43,91 @@ static void StaticPatches()
     // restore prologue destroyed by packer
     mem::patch(0x0274E6D8, { 0xE8, 0x33, 0x55, 0x51, 0x00, 0xA1, 0xE0, 0xCE, 0x99, 0x03, 0x31, 0xE8, 0x89, 0x45, 0xFC, 0xA1, 0xE4, 0xCE, 0xB7, 0x03 });
 
+    // Restore the inverse of 13224B0's native config-group mapping on the
+    // external chat checkbox save path. The original caller passes its UI
+    // inner index as the config group: outer 0 must map to group 4, while
+    // outer 2 inner 0..5 maps to groups 0,1,2,3,5,6. These two blocks occupy
+    // runtime-verified INT3 alignment gaps and tail-jump to the original
+    // 0A9AF50 call target with the original stack and return address intact.
+    mem::patch(0x01322429, { 0xE8, 0x82, 0x59, 0x02, 0x00 });
+    mem::patch(0x01347DB0, {
+        0x83, 0xF8, 0x04,                   // cmp eax, 4
+        0xF5,                               // cmc
+        0x83, 0xD0, 0x00,                   // adc eax, 0
+        0x83, 0x7E, 0x30, 0x00,             // cmp dword ptr [esi+30h], 0
+        0xE9, 0x40, 0x0E, 0x00, 0x00        // jmp 01348C00
+        });
+    mem::patch(0x01348C00, {
+        0x75, 0x05,                         // jne use_chat_group
+        0xB8, 0x04, 0x00, 0x00, 0x00,       // mov eax, 4
+        0x89, 0x44, 0x24, 0x04,             // mov [esp+4], eax
+        0xE9, 0x40, 0x23, 0x75, 0xFF        // jmp 00A9AF50
+        });
+
+    // 13224B0 normally clamps a missing inner chat tab to index zero. The
+    // shell can legitimately expose fewer than all six saved chat groups, so
+    // that fallback lets the last absent group overwrite the Normal tab.
+    // Preserve the native apply call for an existing tab, and skip it when the
+    // requested inner index is outside the live tab vector.
+    mem::patch(0x01322644, { 0xE8, 0x58, 0x68, 0x02, 0x00, 0x90 });
+    mem::patch(0x01348EA1, {
+        0x73, 0x05,                         // jae missing_tab
+        0x58,                               // preserve the call return address
+        0x57,                               // push edi (inner tab)
+        0x56,                               // push esi (outer tab)
+        0x50,                               // restore the call return address
+        0xC3,                               // ret to the original apply call
+        0x83, 0x04, 0x24, 0x08,             // missing_tab: skip to cleanup
+        0xC2, 0x08, 0x00                    // discard the two earlier args
+        });
+
+    // Restore the two native raid message pairs omitted from 13224B0's chat
+    // row conversion: 52/53 share row 4 and 54/55 share row 5. All other
+    // types continue through the original resource lookup unchanged.
+    mem::patch(0x0132256C, { 0xE8, 0xF0, 0x66, 0x02, 0x00 });
+    mem::patch(0x01348C61, {
+        0x2C, 0x33,                         // sub al, 51
+        0x3C, 0x03,                         // cmp al, 3
+        0x77, 0x5A,                         // ja original_lookup
+        0xD0, 0xE8,                         // shr al, 1
+        0x0C, 0x04,                         // or al, 4
+        0x89, 0x45, 0xF8,                   // mov [ebp-8], eax
+        0xEB, 0x51                          // jmp original_lookup
+        });
+    mem::patch(0x01348CC1, {
+        0xE9, 0x0A, 0x29, 0xFD, 0xFF        // jmp 0131B5D0
+        });
+
+    // The external System list has one shell-owned leading row. Keep the
+    // native type 16..30 range check, then advance only the resulting UI row
+    // from 0..14 to 1..15 before continuing in 13224B0.
+    mem::patch(0x01322532, { 0xE9, 0x0E, 0x83, 0x73, 0x00 });
+    mem::patch(0x01A5A845, {
+        0x40,                               // inc eax (system UI row)
+        0x89, 0x45, 0xF8,                   // mov [ebp-8], eax
+        0xE9, 0x1E, 0x7D, 0x8C, 0xFF        // jmp 0132256C
+        });
+
+    // Type 31 alone uses the special system-select path. The shell changed
+    // this equality test into a signed range check, which also skips the
+    // native config write for the persisted raid message types 52..55.
+    mem::patch(0x01A5A5D2, { 0x74 });
+
+    // The rebuild loop iterates native message types, not packed-byte offsets.
+    // Process 0..30, skip the special/unpersisted 31..51 range, then process
+    // the persisted raid pairs 52..55.
+    mem::patch(0x01A5E7C3, { 0xE8, 0x89, 0x08, 0x00, 0x00 });
+    mem::patch(0x01A5F051, {
+        0x8B, 0xC3,                         // mov eax, ebx
+        0x83, 0xFE, 0x1F,                   // cmp esi, 31
+        0x75, 0x03,                         // jne compare_group
+        0x6A, 0x34,                         // push 52
+        0x5E,                               // pop esi
+        0x83, 0xFF, 0x07,                   // compare_group: cmp edi, 7
+        0xC3                                // ret
+        });
+    mem::patch(0x01A5E827, { 0x38 });
+
     // NOP the fixed-key XOR decrypt in NetworkProc (server sends plaintext)
     mem::patch(0x0163BDAB, { 0x90, 0x90, 0x90, 0x90, 0x90 });
 
@@ -73,9 +158,6 @@ static void StaticPatches()
     // GotoChannelSelectInit needs it to enter the channel-select module for
     // in-game channel switching; forcing it to 0 breaks that flow.
     mem::patch(0x1329B4B, { 0xEB });
-
-    // packed `jge`→`jz`：type 52-55 走进 1A5A590 第一段写。
-    mem::patch(0x01A5A5D2, { 0x74 });
 
     // 19E95C0 (put char in a face-bar slot) ends with call 19E94A0.
     // That blit uses this+0x18 before 19DFB10 copies the job face;
@@ -220,112 +302,6 @@ static DWORD __fastcall Proxy_CThreadCreate(void* This, void* /*edx*/)
     return ResumeThread(h);
 }
 
-// 聊天页签过滤：不自写 154B，不自调 1A59B90。
-
-static int FilterBlobSum(const unsigned char* blob)
-{
-    int n = 0;
-    for (int i = 0; i < 154; ++i)
-        n += blob[i];
-    return n;
-}
-
-// 全 0 的 154B 当 miss，走 1A59B90 失败默认。
-static char __fastcall Hook_ReadFilterBlob(void* store, void* /*edx*/, int key, void* blob, int size)
-{
-    const char ok = reinterpret_cast<char (__thiscall *)(void*, int, void*, int)>(0x01385870)(
-        store, key, blob, size);
-    if (ok && size == 154 && blob && FilterBlobSum(static_cast<unsigned char*>(blob)) == 0)
-        return 0;
-    return ok;
-}
-
-// 空 slot (-1,-1,-1) 走 137EEF0(138,97,97)。
-static char __fastcall Hook_LoadTabIds(void* store)
-{
-    const char ok = reinterpret_cast<char (__thiscall *)(void*)>(0x01386210)(store);
-    int* slot0 = reinterpret_cast<int*>(0x0397F0A8);
-    int* slot1 = reinterpret_cast<int*>(0x0397F0AC);
-    int* slot2 = reinterpret_cast<int*>(0x0397F0B0);
-    if (*slot0 == -1 && *slot1 == -1 && *slot2 == -1)
-    {
-        reinterpret_cast<int (__stdcall *)(int, int, int)>(0x0137EEF0)(138, 97, 97);
-        typedef void* (__cdecl *FnStore)();
-        void* st = reinterpret_cast<FnStore>(0x013868F0)();
-        if (st)
-            reinterpret_cast<int (__thiscall *)(void*)>(0x01388420)(st);
-    }
-    return ok;
-}
-
-// 跳过错位的 1A5C6B0，避免 hide 窗口 tab 81-86。
-static int __fastcall Hook_HideExtraTabs(void* /*chat*/)
-{
-    return 0;
-}
-
-// 13224B0：type 16-30 读 group 4；type 1/2/3/6 共用 channel 2。
-static int Official13224B0BlobGroup(int leftover_group, int type)
-{
-    if ((unsigned)(type - 16) <= 14)
-        return 4;
-    return leftover_group;
-}
-
-static int Official13224B0SharedChannel(int type)
-{
-    return type == 1 || type == 2 || type == 3 || type == 6;
-}
-
-static void OfficialSaveFilter(void* win, int group, int type, int value)
-{
-    reinterpret_cast<void (__thiscall *)(void*, int, int, int)>(0x01A5A860)(
-        win, group, type, value);
-}
-
-// 系统项保存到 group 4，只写一次。
-static void __fastcall Hook_SaveFromEngine(void* win, void* /*edx*/, int group, int type, int value)
-{
-    int v = value;
-    int save_group = group;
-    if (*reinterpret_cast<int*>(0x03998E00) == 4483)
-    {
-        v &= 1;
-        save_group = Official13224B0BlobGroup(group, type);
-    }
-    OfficialSaveFilter(win, save_group, type, v);
-}
-
-// 系统列表行号 +1，与勾选对齐。
-static int __fastcall Hook_ApplyFilterRow(
-    void* list, void* /*edx*/, unsigned int tab, unsigned int capacity, int filter_index, int value)
-{
-    if (tab == 0 && filter_index >= 0 && filter_index <= 14)
-        ++filter_index;
-    return reinterpret_cast<int (__thiscall *)(void*, unsigned int, unsigned int, int, int)>(
-        0x01321E20)(list, tab, capacity, filter_index, value);
-}
-
-// shared-channel type 只把 leftover group 交给 13224B0。
-static void __cdecl Hook_Df80EngineApply(int group, int type, int value)
-{
-    if (Official13224B0SharedChannel(type) &&
-        group != Official13224B0BlobGroup(0, type))
-        return;
-    reinterpret_cast<void (__cdecl *)(int, int, int)>(0x013224B0)(group, type, value);
-}
-
-// 只 hook call site。
-static void InstallChatFilterOfficial()
-{
-    mem::callhook(0x01A59BD3, reinterpret_cast<uintptr_t>(Hook_ReadFilterBlob));
-    mem::callhook(0x01A66137, reinterpret_cast<uintptr_t>(Hook_LoadTabIds));
-    mem::callhook(0x011110B3, reinterpret_cast<uintptr_t>(Hook_HideExtraTabs));
-    mem::callhook(0x01322430, reinterpret_cast<uintptr_t>(Hook_SaveFromEngine));
-    mem::callhook(0x0132264C, reinterpret_cast<uintptr_t>(Hook_ApplyFilterRow));
-    mem::callhook(0x01A5E81C, reinterpret_cast<uintptr_t>(Hook_Df80EngineApply));
-}
-
 void PatchS4A21(HMODULE module)
 {
     StaticPatches();
@@ -342,8 +318,6 @@ void PatchS4A21(HMODULE module)
     // CThread::Create — native reimplementation replacing the VM'd original
     // (called from MTUPD StartListening at 0x28A06A2)
     mem::callhook(0x28A06A2, reinterpret_cast<uintptr_t>(Proxy_CThreadCreate));
-
-    InstallChatFilterOfficial();
 
     debug_features::Apply(module);
 }

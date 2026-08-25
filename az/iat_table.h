@@ -107,7 +107,8 @@ static const IATEntry g_iatTable[] =
     { 0x03029280, "kernel32.dll", "WritePrivateProfileStringW" },
     { 0x03029284, "kernel32.dll", "WritePrivateProfileStructW" },
     { 0x03029288, "kernel32.dll", "GetPrivateProfileIntW" },
-    { 0x0302928C, "kernel32.dll", "WritePrivateProfileStructW" },
+    // The chat filter read path calls GetPrivateProfileStructW through this thunk.
+    { 0x0302928C, "kernel32.dll", "GetPrivateProfileStructW" },
     { 0x03029290, "kernel32.dll", "GetWindowsDirectoryW" },
     { 0x03029294, "kernel32.dll", "CreateThread" },
     { 0x03029298, "kernel32.dll", "TerminateThread" },
