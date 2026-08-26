@@ -35,9 +35,14 @@ constexpr uintptr_t kCurrentCharacterGlobal = 0x03B3DFB8;
 constexpr uintptr_t kGetCharacterName = 0x018A8030;
 // 当前角色职业：19E3290(*03A5C980) → 27C6F20(user)=user+0x14 → [info+4]。
 constexpr uintptr_t kUserManagerGlobal = 0x03A5C980;
+// 组队头像栏：*03A5C990 + 0x30 为 8 个 user*；user+0x14/0x18 为姓名/基础职业。
+constexpr uintptr_t kPartyFaceBarGlobal = 0x03A5C990;
 constexpr uintptr_t kGetLocalUser = 0x019E3290;
 constexpr uintptr_t kGetUserInfo = 0x027C6F20;
 constexpr size_t kUserInfoJobOffset = 4;
+constexpr size_t kPartyFaceBarUserOffset = 0x30;
+constexpr size_t kPartyUserNameOffset = 0x14;
+constexpr size_t kPartyUserJobOffset = 0x18;
 constexpr int kOfficialJobMax = 0x0D;
 constexpr uintptr_t kDamageAggregatorCallAddress = 0x0105454B;
 constexpr uintptr_t kDamageAggregatorTailAddress = 0x01054180;
@@ -80,7 +85,8 @@ constexpr uint32_t kUniformThemeIndex = 0;
 
 uint32_t ProfessionToTheme(int profession)
 {
-    // Maps client profession IDs to the official Style3 color themes.
+    // Style3 themes follow base-job IDs. Grow/awakening stages keep the
+    // base job's color; the 18 themes come from a newer client job roster.
     static constexpr uint32_t kOfficialProfessionThemes[kThemeCount] = {
         0, 3, 5, 1, 9, 2, 10, 4, 8,
         14, 13, 7, 17, 11, 15, 6, 12, 16
@@ -655,6 +661,36 @@ using CharacterNameFn = const wchar_t*(__thiscall*)(void* character);
 using GetLocalUserFn = void*(__thiscall*)(void* manager);
 using GetUserInfoFn = void*(__thiscall*)(void* user);
 
+bool TryCopyRoleName(const wchar_t* source,
+    wchar_t (&name)[kMaximumNameLength + 1])
+{
+    ZeroMemory(name, sizeof(name));
+    if (!source || !IsReadableRange(source, sizeof(wchar_t)))
+        return false;
+
+    size_t length = 0;
+    __try
+    {
+        while (length < kMaximumNameLength && source[length])
+        {
+            const wchar_t value = source[length];
+            if (value < 0x20 && value != L' ')
+                return false;
+            name[length++] = value;
+        }
+        if (!length ||
+            (length == kMaximumNameLength && source[length]))
+            return false;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        name[0] = L'\0';
+        return false;
+    }
+    name[length] = L'\0';
+    return true;
+}
+
 bool TryReadRoleName(void* character,
     wchar_t (&name)[kMaximumNameLength + 1])
 {
@@ -678,27 +714,7 @@ bool TryReadRoleName(void* character,
     {
         return false;
     }
-    if (!source || !IsReadableRange(source, sizeof(wchar_t)))
-        return false;
-    size_t length = 0;
-    __try
-    {
-        while (length < kMaximumNameLength && source[length])
-        {
-            const wchar_t value = source[length];
-            if (value < 0x20 && value != L' ')
-                return false;
-            name[length++] = value;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-    if (!length || length == kMaximumNameLength && source[length])
-        return false;
-    name[length] = L'\0';
-    return true;
+    return TryCopyRoleName(source, name);
 }
 
 int TryReadRoleProfession(void* character)
@@ -740,6 +756,91 @@ int TryReadRoleProfession(void* character)
     }
     return profession >= 0 && profession <= kOfficialJobMax
         ? profession : -1;
+}
+
+bool TryReadPartyRole(void* user, RoleIdentity& role)
+{
+    role = {};
+    if (!user || !IsReadableRange(user,
+            kPartyUserJobOffset + sizeof(int)))
+        return false;
+
+    const wchar_t* name = nullptr;
+    int profession = -1;
+    __try
+    {
+        const auto* bytes = static_cast<const unsigned char*>(user);
+        name = *reinterpret_cast<const wchar_t* const*>(
+            bytes + kPartyUserNameOffset);
+        profession = *reinterpret_cast<const int*>(
+            bytes + kPartyUserJobOffset);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+    if (!TryCopyRoleName(name, role.name))
+        return false;
+    role.profession = profession >= 0 && profession <= kOfficialJobMax
+        ? profession : -1;
+    return true;
+}
+
+void MergeRoleIdentity(RoleIdentity (&roles)[kMaximumPlayers],
+    size_t& roleCount, const RoleIdentity& candidate)
+{
+    for (size_t index = 0; index < roleCount; ++index)
+    {
+        if (wcscmp(roles[index].name, candidate.name) != 0)
+            continue;
+        if (roles[index].profession < 0 && candidate.profession >= 0)
+            roles[index].profession = candidate.profession;
+        return;
+    }
+    if (roleCount < kMaximumPlayers)
+        roles[roleCount++] = candidate;
+}
+
+void CollectPartyRoles(RoleIdentity (&roles)[kMaximumPlayers],
+    size_t& roleCount)
+{
+    const uintptr_t global = ClientAddress(kPartyFaceBarGlobal);
+    if (!IsClientRange(global, sizeof(void*)))
+        return;
+
+    void* faceBar = nullptr;
+    __try
+    {
+        faceBar = *reinterpret_cast<void**>(global);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return;
+    }
+    if (!faceBar || !IsReadableRange(
+            static_cast<const unsigned char*>(faceBar) +
+                kPartyFaceBarUserOffset,
+            kMaximumPlayers * sizeof(void*)))
+        return;
+
+    for (size_t slot = 0; slot < kMaximumPlayers; ++slot)
+    {
+        void* user = nullptr;
+        __try
+        {
+            const auto* bytes = static_cast<const unsigned char*>(faceBar);
+            user = *reinterpret_cast<void* const*>(
+                bytes + kPartyFaceBarUserOffset + slot * sizeof(void*));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            continue;
+        }
+
+        RoleIdentity role;
+        if (TryReadPartyRole(user, role))
+            MergeRoleIdentity(roles, roleCount, role);
+    }
 }
 
 void PublishRoleIdentities(const RoleIdentity (&roles)[kMaximumPlayers],
@@ -809,6 +910,7 @@ void RefreshRoleIdentities()
             g_currentCharacter);
         ++roleCount;
     }
+    CollectPartyRoles(roles, roleCount);
     PublishRoleIdentities(roles, roleCount);
 }
 
