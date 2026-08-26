@@ -156,14 +156,25 @@ static void StaticPatches()
     // in-game channel switching; forcing it to 0 breaks that flow.
     mem::patch(0x1329B4B, { 0xEB });
 
-    // 19E95C0 (put char in a face-bar slot) ends with call 19E94A0.
-    // That blit uses this+0x18 before 19DFB10 copies the job face;
-    // leftover 14 is past defaultfaces.img frames 0–13 and draws the
-    // missing-image stub at client (0,0) on select→town.
-    // Keep 13E27E0's "is me" path (19E9800 → 19E95C0 bind, widgets
-    // 0x83/0x84, 163DA50). Only NOP this trailing draw; later official
-    // 19E94A0 callers still run.
-    mem::patch(0x19E97A3, { 0x90, 0x90, 0x90, 0x90, 0x90 });
+    // 19E95C0 binds the local character before USERINFO copies its job-face
+    // frame. Extend the native tail into its adjacent INT3 alignment gap and
+    // suppress only that incomplete frame (defaultfaces.img has 0..13).
+    // Null slots and valid party faces still call the original 19E94A0; the
+    // skip path reaches the original epilogue without pushing a stack arg.
+    mem::patch(0x019E97A2, {
+        0x85, 0xF6,                         // test esi, esi
+        0x74, 0x06,                         // jz draw_native
+        0x83, 0x7E, 0x18, 0x0E,             // cmp dword ptr [esi+18h], 14
+        0x73, 0x06,                         // jae finish
+        0x53,                               // draw_native: push ebx (slot)
+        0xE8, 0xEE, 0xFC, 0xFF, 0xFF,       // call 019E94A0
+        0x5F,                               // finish: pop edi
+        0x5E,                               // pop esi
+        0x5B,                               // pop ebx
+        0x8B, 0xE5,                         // mov esp, ebp
+        0x5D,                               // pop ebp
+        0xC2, 0x08, 0x00                    // ret 8
+        });
 }
 
 // nengine::ISocket::Write — full port of the official client original
