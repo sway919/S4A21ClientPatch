@@ -28,7 +28,7 @@ GameGaurd.dll
 
 ### 构建和部署
 
-Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。将生成的 `az.dll`、`GameGaurd.dll` 和 `Extensions/` 下各插件的 dll、ini 放到客户端根目录。依赖游戏原生能力的功能插件写在 `GameNative.dll` 后面。
+Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。全部工程静态链接 CRT（`/MT`），不依赖 VC++ 运行库。将生成的 `az.dll`、`GameGaurd.dll` 和 `Extensions/` 下各插件的 dll、ini 放到客户端根目录。依赖游戏原生能力的功能插件写在 `GameNative.dll` 后面。
 
 ### 静态补丁
 

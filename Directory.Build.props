@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!-- All ClientPatch binaries statically link the CRT so users do not need the VC++ redistributable. -->
+  <PropertyGroup>
+    <ClientPatchStaticCRT>true</ClientPatchStaticCRT>
+  </PropertyGroup>
+</Project>
