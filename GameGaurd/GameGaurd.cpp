@@ -157,23 +157,21 @@ static void StaticPatches()
     mem::patch(0x1329B4B, { 0xEB });
 
     // 19E95C0 binds the local character before USERINFO copies its job-face
-    // frame. Extend the native tail into its adjacent INT3 alignment gap and
-    // suppress only that incomplete frame (defaultfaces.img has 0..13).
-    // Null slots and valid party faces still call the original 19E94A0; the
-    // skip path reaches the original epilogue without pushing a stack arg.
+    // frame. Route its native draw call through the adjacent INT3 alignment
+    // gap and suppress only incomplete frames (defaultfaces.img has 0..13).
+    // Keep 19E97A8's original epilogue in place: the member-removal path
+    // jumps there directly when a face-bar slot becomes null.
+    mem::patch(0x019E97B1, {
+        0x83, 0x7E, 0x18, 0x0E,             // check_frame: cmp [esi+18h], 14
+        0x73, 0xF1,                         // jae 019E97A8 (native epilogue)
+        0x53,                               // draw_native: push ebx (slot)
+        0xE8, 0xE3, 0xFC, 0xFF, 0xFF,       // call 019E94A0
+        0xEB, 0xE9                          // jmp 019E97A8 (native epilogue)
+        });
     mem::patch(0x019E97A2, {
         0x85, 0xF6,                         // test esi, esi
-        0x74, 0x06,                         // jz draw_native
-        0x83, 0x7E, 0x18, 0x0E,             // cmp dword ptr [esi+18h], 14
-        0x73, 0x06,                         // jae finish
-        0x53,                               // draw_native: push ebx (slot)
-        0xE8, 0xEE, 0xFC, 0xFF, 0xFF,       // call 019E94A0
-        0x5F,                               // finish: pop edi
-        0x5E,                               // pop esi
-        0x5B,                               // pop ebx
-        0x8B, 0xE5,                         // mov esp, ebp
-        0x5D,                               // pop ebp
-        0xC2, 0x08, 0x00                    // ret 8
+        0x74, 0x11,                         // jz draw_native
+        0xEB, 0x09                          // jmp check_frame
         });
 }
 
