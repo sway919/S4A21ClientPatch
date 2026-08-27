@@ -11,7 +11,11 @@ namespace equipment_swap
 namespace
 {
 constexpr char kMagic[4] = { 'E', 'S', 'W', '1' };
-constexpr unsigned int kFormatVersion = 1;
+constexpr unsigned int kFormatVersion = 2;
+// v1 只有 24 个槽位（装备 12 + 时装 11 + 宠物 1），没有宠物装备和勋章。
+// v2 追加的槽位排在末尾，旧档前 24 槽原样迁移。
+constexpr unsigned int kLegacyFormatVersion = 1;
+constexpr int kLegacySlotCount = 24;
 constexpr int kNameCapacity = 32;
 
 #pragma pack(push, 1)
@@ -39,10 +43,21 @@ struct FileProfile
     unsigned int virtualKey;
     FileSlot slots[kSlotCount];
 };
+
+struct FileProfileV1
+{
+    unsigned short nameLength;
+    wchar_t name[kNameCapacity];
+    unsigned int modifiers;
+    unsigned int virtualKey;
+    FileSlot slots[kLegacySlotCount];
+};
 #pragma pack(pop)
 
 constexpr size_t kFileSize = sizeof(FileHeader) +
     sizeof(FileProfile) * kProfileCount;
+constexpr size_t kLegacyFileSize = sizeof(FileHeader) +
+    sizeof(FileProfileV1) * kProfileCount;
 
 void ProfilesToFile(const ProfileCollection& profiles, FileProfile* out)
 {
@@ -83,6 +98,30 @@ void FileToProfiles(const FileProfile* source, ProfileCollection& profiles)
         profiles[index].hotkey.modifiers = src.modifiers;
         profiles[index].hotkey.virtualKey = src.virtualKey;
         for (int slot = 0; slot < kSlotCount; ++slot)
+        {
+            profiles[index].slots[slot].itemId = src.slots[slot].itemId;
+            profiles[index].slots[slot].qualitySeed =
+                src.slots[slot].qualitySeed;
+            profiles[index].slots[slot].preferredSourceSlot =
+                src.slots[slot].preferredSourceSlot;
+        }
+    }
+}
+
+void FileV1ToProfiles(const FileProfileV1* source, ProfileCollection& profiles)
+{
+    ResetProfiles(profiles);
+    for (int index = 0; index < kProfileCount; ++index)
+    {
+        const FileProfileV1& src = source[index];
+        unsigned short length = src.nameLength;
+        if (length > kNameCapacity)
+            length = kNameCapacity;
+        if (length)
+            profiles[index].name.assign(src.name, src.name + length);
+        profiles[index].hotkey.modifiers = src.modifiers;
+        profiles[index].hotkey.virtualKey = src.virtualKey;
+        for (int slot = 0; slot < kLegacySlotCount; ++slot)
         {
             profiles[index].slots[slot].itemId = src.slots[slot].itemId;
             profiles[index].slots[slot].qualitySeed =
@@ -135,7 +174,7 @@ bool FileStore::ReadFile(const std::wstring& path, ProfileCollection& profiles,
     std::vector<unsigned char> bytes(kFileSize);
     const size_t read = fread(bytes.data(), 1, bytes.size(), file);
     fclose(file);
-    if (read != kFileSize)
+    if (read != kFileSize && read != kLegacyFileSize)
     {
         error = L"换装数据不完整";
         return false;
@@ -144,15 +183,31 @@ bool FileStore::ReadFile(const std::wstring& path, ProfileCollection& profiles,
     FileHeader header = {};
     std::memcpy(&header, bytes.data(), sizeof(header));
     if (std::memcmp(header.magic, kMagic, sizeof(kMagic)) != 0 ||
-        header.version != kFormatVersion)
+        (header.version != kFormatVersion &&
+            header.version != kLegacyFormatVersion))
     {
         error = L"换装数据格式无法识别";
+        return false;
+    }
+    const bool legacy = header.version == kLegacyFormatVersion;
+    if (legacy ? read != kLegacyFileSize : read != kFileSize)
+    {
+        error = L"换装数据不完整";
         return false;
     }
     if (header.characterId != expectedId)
     {
         error = L"换装数据与角色ID不一致";
         return false;
+    }
+
+    if (legacy)
+    {
+        FileProfileV1 legacyProfiles[kProfileCount] = {};
+        std::memcpy(legacyProfiles, bytes.data() + sizeof(header),
+            sizeof(legacyProfiles));
+        FileV1ToProfiles(legacyProfiles, profiles);
+        return true;
     }
 
     FileProfile fileProfiles[kProfileCount] = {};
