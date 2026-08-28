@@ -10,7 +10,8 @@ namespace equipment_swap::client_api
 namespace
 {
 constexpr uintptr_t kPreferredImageBase = 0x00400000;
-// 01648AC0：cdecl(listType)，0/1/7 分别返回装备背包/时装/宠物列表。
+// 01648AC0：cdecl(listType)。0/1/7 分别返回装备背包/时装/宠物列表，已核实；
+// 38（勋章背包）按同一函数处理，未经实机断点验证，返回空时换装按失败计数。
 constexpr uintptr_t kGetInventoryList = 0x01648AC0;
 // 01648BA0：cdecl(listType, slot)；type 3/17 走角色当前穿戴。
 constexpr uintptr_t kGetItemAt = 0x01648BA0;
@@ -277,9 +278,12 @@ int ReadEquippedQualitySeed(short destinationSlot)
 bool MoveItemNative(int sourceListType, int sourceSlot,
     int destinationSlot)
 {
+    // 源列表：0 装备背包、1 时装、7 宠物（含宠物装备 140-188）、38 勋章背包。
+    // 目标槽：身上装备 0-31（含宠物 25、宠物装备 26-28、勋章 31）。
     if (!g_ready ||
-        (sourceListType != 0 && sourceListType != 1 && sourceListType != 7) ||
-        sourceSlot < 0 || destinationSlot < 0 || destinationSlot > 25)
+        (sourceListType != 0 && sourceListType != 1 && sourceListType != 7 &&
+            sourceListType != 38) ||
+        sourceSlot < 0 || destinationSlot < 0 || destinationSlot > 31)
         return false;
     __try
     {

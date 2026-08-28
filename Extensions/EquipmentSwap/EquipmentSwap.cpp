@@ -639,7 +639,7 @@ void CaptureCurrentEquipment()
     }
     QueueSaveProfile(g_selectedProfile);
     SetStatus(L"已读取当前穿戴，记录 " + std::to_wstring(captured) +
-        L" 件装备、时装或宠物");
+        L" 件装备、时装、宠物或勋章");
 }
 
 void NotifySwap(const std::wstring& text)

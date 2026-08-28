@@ -16,7 +16,8 @@ std::wstring CurrentCharacterName();
 unsigned int CurrentCharacterId();
 
 // 读取角色当前穿戴列表中的物品 ID；装备列表为 3。
-// 时装 0-10（光环是 9），装备 12-23，宠物 25。不读光环皮肤 11、副武器 24。
+// 时装 0-10（光环是 9），装备 12-23，宠物 25，宠物装备 26-28，勋章 31。
+// 不读光环皮肤 11、副武器 24。
 int ReadEquippedItemId(short destinationSlot);
 
 // 品质种子在 info+0x2CC（ItemCore.Value）。时装/宠物上同字段另有语义，换装匹配仅对普通装备使用。
