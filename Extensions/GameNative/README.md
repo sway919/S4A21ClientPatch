@@ -33,6 +33,16 @@ Debug=0
 
 `Debug` 只控制是否写入 `GameNative.log`。
 
+## 系统 XUI 边界
+
+GameNative 只接管插件显式挂载的虚拟路径；没有挂载的路径必须原样调用客户端 loader。
+不要挂载或拦截 `WorldMap/UI/Common/Common.xui`。该布局由魂图与 Anton 难度切换共用，
+屏蔽或缓存它会让合法的模式切换使用陈旧界面。
+
+服务端完成 Soul 标准结算时应发送原生 `EPLP_RECHALLENGE(0x0105)`、body `09`；
+GameNative 不提供替代通知或客户端侧重试状态机。需要诊断异常重载时临时启用 `Debug=1`，
+按 `[load]` 记录检查上述路径，完成后关闭调试日志。
+
 ## 开发说明
 
 业务插件包含 `GameNativeApi.h`，调用 `ClientPatchBindGameNative`，或自己 `GetProcAddress("ClientPatchGetGameNativeApi")`。

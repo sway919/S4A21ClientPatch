@@ -40,6 +40,17 @@ Visual Studio 2022 打开 `ClientPatch.sln`，构建 `Release|Win32`。全部工
 - n5 校验入口改为直接返回成功
 - hook内嵌页面地址指向
 
+### Soul 再次挑战兼容边界
+
+Soul（PVF 同时标记 `ancient dungeon` 与 `risk dungeon`）在标准结算后由服务端发送
+原生 `EPLP_RECHALLENGE(0x0105)`，body 为单字节 `09`。A21 客户端已经实现该通知的
+消费；ClientPatch 不应拦截、改写或重复生成它。
+
+`WorldMap/UI/Common/Common.xui` 是魂图与 Anton 模式按钮共用的系统布局。功能插件不得
+通过 GameNative 挂载、缓存或去重这个路径；未挂载的系统 XUI 必须继续交给客户端原生
+loader。排查再次挑战后持续内存增长时，可临时设置 `GameNative.ini` 的 `Debug=1`，检查
+`GameNative.log` 中该路径是否快速重复加载；诊断完成后恢复为 `0`。
+
 ### 功能扩展
 
 功能插件源码在 [`Extensions/`](Extensions/)，由 `GameGaurd.ini` 的 `[Plugins]` 按顺序加载。DLL 和 ini 仍拷到客户端根目录（与 `GameGaurd.dll` 同级）。换装的 XUI 和方案数据放在同级的 `EquipmentSwap` 文件夹。
