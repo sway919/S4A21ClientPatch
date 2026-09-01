@@ -5,6 +5,7 @@
 | 目录 | 作用 |
 | --- | --- |
 | [GameNative](GameNative/README.md) | 游戏原生能力，供其他插件调用 |
+| [ImeFix](ImeFix/README.md) | 现代输入法兼容插件 |
 | [AutoFire](AutoFire/README.md) | 连发 |
 | [EquipmentSwap](EquipmentSwap/README.md) | 游戏内换装 |
 | [DpsMeter](DpsMeter/README.md) | 地下城伤害统计 |
@@ -31,6 +32,7 @@ Plugin3=AutoFire.dll
 Plugin4=EquipmentSwap.dll
 Plugin5=DpsMeter.dll
 Plugin6=CombatPower.dll
+Plugin6=ImeFix.dll
 ```
 
 | 插件 | 和 GameNative 的顺序 |
@@ -42,5 +44,6 @@ Plugin6=CombatPower.dll
 | EquipmentSwap | 必须在 GameNative 之后 |
 | DpsMeter | 必须在 GameNative 之后 |
 | CombatPower | 必须在 GameNative 之后 |
+| ImeFix | 不依赖，可写在任意位置 |
 
 新增依赖 GameNative 的插件时，追加到 `GameNative.dll` 那一行下面，不要插到它上面。不要给 `GameGaurd.ini` 加 UTF-8 BOM，否则整节插件都不会加载。

@@ -58,6 +58,7 @@ loader。排查再次挑战后持续内存增长时，可临时设置 `GameNativ
 | 插件 | 说明 |
 | --- | --- |
 | [GameNative](Extensions/GameNative/README.md) | 游戏原生能力：聊天公告、外挂 XUI、窗口 ID。没有独立界面，供其他功能插件调用。 |
+| [ImeFix](Extensions/ImeFix/README.md) | 现代输入法兼容插件 |
 | [AutoFire](Extensions/AutoFire/README.md) | 键盘连发、组合动作和鼠标连点。自动判断游戏中的输入状态，打字时不合成。 |
 | [EquipmentSwap](Extensions/EquipmentSwap/README.md) | 游戏内换装面板。聊天公告和窗口走 GameNative。 |
 | [DpsMeter](Extensions/DpsMeter/README.md) | 地下城伤害统计。独立窗口；载入和开关公告走 GameNative。 |
