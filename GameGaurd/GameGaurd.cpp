@@ -40,6 +40,8 @@ static void StaticPatches()
     // restore prologue destroyed by packer
     mem::patch(0x0274E6D8, { 0xE8, 0x33, 0x55, 0x51, 0x00, 0xA1, 0xE0, 0xCE, 0x99, 0x03, 0x31, 0xE8, 0x89, 0x45, 0xFC, 0xA1, 0xE4, 0xCE, 0xB7, 0x03 });
 
+    mem::patch(0x02740C7E, { 0xC3 });
+
     // Restore the inverse of 13224B0's native config-group mapping on the
     // external chat checkbox save path. The original caller passes its UI
     // inner index as the config group: outer 0 must map to group 4, while
