@@ -2,6 +2,7 @@
 #include "DebugFeatures.h"
 #include "PluginLoader.h"
 #include "WebPageUrl.h"
+#include <cstdio>
 #include <cstring>
 #include <intrin.h>
 
@@ -175,6 +176,45 @@ static void StaticPatches()
         0x74, 0x11,                         // jz draw_native
         0xEB, 0x09                          // jmp check_frame
         });
+
+    // --- Emblem collector: let the server decide instead of local rejection ---
+    // The emblem-collect window's Use validation (0x168D120) locally rejects
+    // three cases and only shows a notice without ever sending
+    // ENUM_CMDPACKET_EMBLEM_COLLECT_ITEM (0x03B8), so the server never sees
+    // the request:
+    //   1) not every emblem socket holds an emblem     -> notice 0x11716
+    //   2) first emblem grade missing from the box's
+    //      [action] parameter set                      -> notice 0x11719
+    //   3) the two emblem grades differ                -> notice 0x11718
+    // Turn each "jump on failure" into an unconditional jump to its own pass
+    // branch; the server stays fail-closed. Original bytes are verified first
+    // and a mismatch is logged without writing anything (the exe build differs
+    // and the patch must not be applied). Runs from DllMain, so the self-check
+    // reports to a log file next to the exe instead of MessageBox (loader lock).
+    static const struct { uintptr_t va; unsigned char expect[2]; } kEmblemCollectPatch[] = {
+        { 0x168D1C3, { 0x75, 0x0D } },   // (1) empty emblem socket: jne -> jmp
+        { 0x168D2AE, { 0x75, 0x0D } },   // (2) grade not in box parameter set: jne -> jmp
+        { 0x168D2C3, { 0x74, 0x0D } },   // (3) emblem grades differ: je -> jmp
+    };
+    for (const auto& entry : kEmblemCollectPatch)
+    {
+        unsigned char current[2] = {};
+        mem::read(entry.va, current, sizeof(current));
+        if (current[0] != entry.expect[0] || current[1] != entry.expect[1])
+        {
+            FILE* log = nullptr;
+            if (fopen_s(&log, "GameGaurd_patch.log", "a") == 0 && log)
+            {
+                fprintf(log,
+                    "emblem-collect patch SKIPPED: VA 0x%08X expected %02X %02X, got %02X %02X\n",
+                    (unsigned)entry.va, entry.expect[0], entry.expect[1],
+                    current[0], current[1]);
+                fclose(log);
+            }
+            continue;
+        }
+        mem::patch(entry.va, { 0xEB, 0x0D });
+    }
 }
 
 // nengine::ISocket::Write — full port of the official client original
