@@ -139,6 +139,21 @@ static void StaticPatches()
     // personal warehouse window to open with our server.
     mem::patch(0x02304DCB, { 0xEB });
 
+    // UTF-8 ACP can repeatedly trigger the space-key notice on character entry.
+    // Leave legacy ACP behavior intact and suppress only this popup call site:
+    // 0231B7E8: push 0x209; 0231B7ED: call 02304C70. Its return value is unused.
+    // The callee ends with ret 0Ch (02304E02), so skipping it must still discard
+    // its three arguments. LEA preserves flags; the following notice-flag clear
+    // at 0231B7F2 and all other popup calls remain intact.
+    if (GetACP() == CP_UTF8)
+    {
+        const uint8_t originalCall[] = { 0xE8, 0x7E, 0x94, 0xFE, 0xFF };
+        uint8_t currentCall[sizeof(originalCall)] = {};
+        mem::read(0x0231B7ED, currentCall, sizeof(currentCall));
+        if (std::memcmp(currentCall, originalCall, sizeof(originalCall)) == 0)
+            mem::patch(0x0231B7ED, { 0x8D, 0x64, 0x24, 0x0C, 0x90 }); // lea esp, [esp+0Ch]; nop
+    }
+
     // Patch encrypted string at 0x035E997C to decrypted "az.dll"
     // Original is encrypted; overwrite with decrypted form so GetOrDecryptWideString
     // returns "az.dll" → GetModuleHandleW finds our az.dll → CreateObj works
